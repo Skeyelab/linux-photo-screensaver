@@ -4,6 +4,10 @@ A Linux photo screensaver that works just like the built-in slideshow screensave
 in Linux Mint — **but also scans all subfolders** so your entire photo library is
 included automatically.
 
+It integrates with the system screensaver manager so it **appears in the
+screensaver selector** alongside every other screensaver — no manual terminal
+commands needed after installation.
+
 ## Features
 
 - Activates when the computer has been idle for a configurable amount of time
@@ -13,7 +17,8 @@ included automatically.
 - Supports JPG, JPEG, PNG, GIF, BMP, WebP, and TIFF formats
 - Exits immediately when the mouse is moved or a key is pressed
 - GUI settings editor with folder browser and live image count
-- Autostart entry so the daemon launches automatically at login
+- **Appears in the screensaver list** of XScreenSaver, MATE Screensaver, and Xfce Screensaver
+- Supports the XScreenSaver embedded-window protocol so live preview works in settings dialogs
 
 ## Why this app?
 
@@ -32,6 +37,22 @@ This app solves that by using a recursive scan, so a folder structure like:
 
 …works exactly as expected.
 
+## Screensaver manager support
+
+| Desktop | Screensaver manager | Appears in list? | Notes |
+|---|---|---|---|
+| Cinnamon (Linux Mint default) | cinnamon-screensaver | ✗ natively | Installer offers to replace with XScreenSaver ✔ |
+| Cinnamon + XScreenSaver | xscreensaver | ✔ | Select in `xscreensaver-settings` |
+| MATE | mate-screensaver | ✔ | Appears automatically after install |
+| Xfce | xfce4-screensaver | ✔ | Appears automatically after install |
+
+### How it works with XScreenSaver
+
+XScreenSaver calls the screensaver as a subprocess and passes the window to draw
+into via the `XSCREENSAVER_WINDOW` environment variable or the `-window-id`
+command-line argument.  This app handles both, enabling the live preview in
+`xscreensaver-settings`.
+
 ## Requirements
 
 | Requirement | Notes |
@@ -39,7 +60,8 @@ This app solves that by using a recursive scan, so a folder structure like:
 | Python 3.8+ | Standard on most Linux distros |
 | `python3-tk` | Usually available via your package manager |
 | `python3-pil` / `python3-pil.imagetk` | Pillow — image loading |
-| `xprintidle` | Idle-time detection (X11) |
+| `xprintidle` | Idle-time detection (standalone daemon mode) |
+| `xscreensaver` | Needed to appear in Cinnamon's screensaver list |
 
 ## Installation
 
@@ -49,21 +71,38 @@ chmod +x install.sh
 ```
 
 The installer will:
-1. Install system packages (`python3-tk`, `python3-pil`, `xprintidle`) via your distro's package manager
+1. Install system packages (`python3-tk`, `python3-pil`, `xprintidle`, `xscreensaver`)
 2. Copy the app to `~/.local/share/linux-photo-screensaver/`
 3. Create `photo-screensaver` and `photo-screensaver-config` commands in `~/.local/bin/`
-4. Add an autostart entry so the daemon starts with every desktop session
+4. Install the XScreenSaver hack to `/usr/lib/xscreensaver/photo-screensaver`
+5. Install the XScreenSaver XML config to `/usr/share/xscreensaver/config/`
+6. Install a screensaver `.desktop` entry for MATE and Xfce
+7. **On Cinnamon**: offer to replace `cinnamon-screensaver` with XScreenSaver and add it to autostart
 
 ### Manual dependency install (Debian / Ubuntu / Linux Mint)
 
 ```bash
-sudo apt install python3-tk python3-pil python3-pil.imagetk xprintidle
+sudo apt install python3-tk python3-pil python3-pil.imagetk xprintidle xscreensaver
 pip3 install --user Pillow
 ```
 
 ## Usage
 
-### Start the background daemon
+### Screensaver manager (recommended)
+
+After running `install.sh`, open your screensaver settings:
+
+- **Cinnamon + XScreenSaver**: run `xscreensaver-settings`, find *Photo Screensaver* in the list
+- **MATE**: *System Settings → Screensaver* → select *Photo Screensaver*
+- **Xfce**: *Settings → Screensaver* → select *Photo Screensaver*
+
+Configure the photo folder first:
+
+```bash
+photo-screensaver --config
+```
+
+### Standalone daemon (alternative, no XScreenSaver needed)
 
 ```bash
 photo-screensaver --daemon
@@ -86,7 +125,7 @@ python3 config_editor.py
 The settings editor lets you:
 - **Browse** to any folder — all subfolders are included automatically
 - See a live count of images found (e.g. *"✔ 1,247 images found (including 34 subfolders)"*)
-- Set the **Idle Timeout** (30 – 3 600 seconds)
+- Set the **Idle Timeout** (30 – 3,600 seconds)
 - Set the **Photo Interval** (1 – 300 seconds)
 - Click **Test Screensaver** to preview immediately
 
@@ -127,3 +166,4 @@ Example `config.json`:
 ```bash
 python3 -m pytest tests/ -v
 ```
+

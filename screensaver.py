@@ -4,9 +4,15 @@
 Displays photos from a configurable folder when the system is idle.
 
 Usage:
-  python3 screensaver.py --daemon   # Monitor idle time and launch screensaver
-  python3 screensaver.py --run      # Run screensaver immediately (for testing)
-  python3 screensaver.py --config   # Open configuration editor
+  python3 screensaver.py --daemon        # Monitor idle time and launch screensaver
+  python3 screensaver.py --run           # Run screensaver immediately (for testing)
+  python3 screensaver.py --config        # Open configuration editor
+  python3 screensaver.py --window-id ID  # Embed into X window ID (XScreenSaver protocol)
+
+XScreenSaver / MATE / Xfce screensaver managers call this script directly and
+either set the XSCREENSAVER_WINDOW environment variable or pass -window-id WINDOWID
+on the command line.  The screensaver detects both and embeds itself into the
+provided window, which enables the live preview in screensaver settings dialogs.
 """
 
 import argparse
@@ -87,8 +93,15 @@ class PhotoScreensaverWindow:
     # Public interface
     # ------------------------------------------------------------------
 
-    def show(self):
-        """Display the screensaver.  Blocks until the user dismisses it."""
+    def show(self, window_id=None):
+        """Display the screensaver.  Blocks until the user dismisses it.
+
+        Parameters
+        ----------
+        window_id : int or None
+            When given, embed the slideshow into this X window (XScreenSaver
+            protocol).  When ``None``, open a normal fullscreen window.
+        """
         import tkinter as tk
         from PIL import Image, ImageTk  # noqa: F401 – imported for side effects
 
@@ -102,19 +115,25 @@ class PhotoScreensaverWindow:
             return
 
         self._running = True
-        self._root = tk.Tk()
+        self._embedded = window_id is not None
+
+        if self._embedded:
+            # Embed into the window provided by the screensaver manager
+            self._root = tk.Tk(use=window_id)
+        else:
+            self._root = tk.Tk()
+            self._root.attributes("-fullscreen", True)
+            self._root.attributes("-topmost", True)
+            self._root.configure(cursor="none")   # hide the mouse cursor
+            # Close on any keyboard or mouse event
+            for event in ("<Any-KeyPress>", "<Motion>", "<Button>"):
+                self._root.bind(event, self._on_user_input)
+
         self._root.title("Photo Screensaver")
         self._root.configure(bg="black")
-        self._root.attributes("-fullscreen", True)
-        self._root.attributes("-topmost", True)
-        self._root.configure(cursor="none")   # hide the mouse cursor
 
         self._label = tk.Label(self._root, bg="black")
         self._label.place(relx=0.5, rely=0.5, anchor="center")
-
-        # Close on any keyboard or mouse event
-        for event in ("<Any-KeyPress>", "<Motion>", "<Button>"):
-            self._root.bind(event, self._on_user_input)
 
         # Display the first photo after a short delay to let Tk settle
         self._root.after(100, self._show_next_photo)
@@ -146,8 +165,14 @@ class PhotoScreensaverWindow:
 
         try:
             img = Image.open(image_path)
-            screen_w = self._root.winfo_screenwidth()
-            screen_h = self._root.winfo_screenheight()
+            if getattr(self, "_embedded", False):
+                # Use the actual size of the embedded preview window
+                self._root.update_idletasks()
+                screen_w = self._root.winfo_width() or 640
+                screen_h = self._root.winfo_height() or 480
+            else:
+                screen_w = self._root.winfo_screenwidth()
+                screen_h = self._root.winfo_screenheight()
 
             # Scale to fill the screen while preserving the aspect ratio
             img_ratio = img.width / img.height
@@ -234,6 +259,10 @@ class ScreensaverDaemon:
 # ---------------------------------------------------------------------------
 
 def main():
+    # XScreenSaver passes -window-id with a single dash; normalise to --window-id
+    # so that argparse can handle it uniformly.
+    argv = ["--window-id" if a == "-window-id" else a for a in sys.argv[1:]]
+
     parser = argparse.ArgumentParser(
         description="Linux Photo Screensaver – cycles random photos when idle"
     )
@@ -253,28 +282,53 @@ def main():
         action="store_true",
         help="Open the configuration editor GUI",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--window-id",
+        dest="window_id",
+        metavar="WINDOWID",
+        help="X window ID for embedded mode (XScreenSaver protocol)",
+    )
+    args = parser.parse_args(argv)
+
+    # Resolve window ID from --window-id arg or XSCREENSAVER_WINDOW env var.
+    # XScreenSaver sets the env var (hex); our own --window-id accepts 0xHEX or decimal.
+    window_id = None
+    env_window = os.environ.get("XSCREENSAVER_WINDOW")
+    if args.window_id:
+        window_id = int(args.window_id, 0)
+    elif env_window:
+        window_id = int(env_window, 0)
 
     if args.config:
         from config_editor import ConfigEditorApp
         ConfigEditorApp().run()
 
-    elif args.run:
+    elif args.daemon:
+        # Explicit daemon mode – ignore any window ID
+        _run_daemon()
+
+    elif args.run or window_id is not None:
+        # Screensaver display: explicit --run, or called by a screensaver manager
         config = load_config()
-        PhotoScreensaverWindow(config).show()
+        PhotoScreensaverWindow(config).show(window_id=window_id)
 
     else:
-        # Default behaviour: daemon mode
-        daemon = ScreensaverDaemon()
+        # Default with no flags: daemon mode
+        _run_daemon()
 
-        def _handle_signal(sig, _frame):
-            logger.info("Received signal %s – stopping daemon", sig)
-            daemon.stop()
-            sys.exit(0)
 
-        signal.signal(signal.SIGTERM, _handle_signal)
-        signal.signal(signal.SIGINT, _handle_signal)
-        daemon.run()
+def _run_daemon():
+    """Start the idle-monitoring daemon."""
+    daemon = ScreensaverDaemon()
+
+    def _handle_signal(sig, _frame):
+        logger.info("Received signal %s – stopping daemon", sig)
+        daemon.stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+    daemon.run()
 
 
 if __name__ == "__main__":

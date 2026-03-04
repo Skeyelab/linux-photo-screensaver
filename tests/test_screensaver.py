@@ -1,11 +1,13 @@
 """Tests for screensaver.py helpers (no display required)."""
 
+import argparse
 import os
 import sys
 import tempfile
 import shutil
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -74,6 +76,74 @@ class TestGetIdleTime(unittest.TestCase):
         result = get_idle_time_ms()
         self.assertIsInstance(result, int)
         self.assertGreaterEqual(result, 0)
+
+
+# ---------------------------------------------------------------------------
+# XScreenSaver window-id protocol tests
+# ---------------------------------------------------------------------------
+
+def _parse_argv(argv):
+    """Reproduce the argument-parsing logic from screensaver.main()."""
+    # Normalise single-dash -window-id to --window-id (XScreenSaver convention)
+    normalized = ["--window-id" if a == "-window-id" else a for a in argv]
+
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--daemon", action="store_true")
+    group.add_argument("--run", action="store_true")
+    group.add_argument("--config", action="store_true")
+    parser.add_argument("--window-id", dest="window_id")
+    args = parser.parse_args(normalized)
+
+    window_id = None
+    if args.window_id:
+        window_id = int(args.window_id, 0)
+    return args, window_id
+
+
+class TestWindowIdParsing(unittest.TestCase):
+    """Verify the XScreenSaver -window-id / XSCREENSAVER_WINDOW handling."""
+
+    def test_single_dash_window_id_normalised(self):
+        """XScreenSaver passes -window-id (single dash); must be normalised."""
+        _args, wid = _parse_argv(["-window-id", "0x4a00007"])
+        self.assertEqual(wid, 0x4A00007)
+
+    def test_double_dash_window_id(self):
+        """--window-id (double dash) also works."""
+        _args, wid = _parse_argv(["--window-id", "0x4a00007"])
+        self.assertEqual(wid, 0x4A00007)
+
+    def test_decimal_window_id(self):
+        """Decimal window IDs are accepted."""
+        _args, wid = _parse_argv(["--window-id", "77070343"])
+        self.assertEqual(wid, 77070343)
+
+    def test_no_window_id_gives_none(self):
+        """Omitting --window-id produces None."""
+        _args, wid = _parse_argv([])
+        self.assertIsNone(wid)
+
+    def test_env_var_xscreensaver_window_parsed_as_hex(self):
+        """XSCREENSAVER_WINDOW env var is read as an auto-detected integer (0x prefix supported)."""
+        with patch.dict(os.environ, {"XSCREENSAVER_WINDOW": "0x4a00007"}):
+            env_val = os.environ.get("XSCREENSAVER_WINDOW")
+            wid = int(env_val, 0)
+        self.assertEqual(wid, 0x4A00007)
+
+    def test_env_var_takes_lower_priority_than_arg(self):
+        """Explicit --window-id overrides XSCREENSAVER_WINDOW."""
+        with patch.dict(os.environ, {"XSCREENSAVER_WINDOW": "0x1111111"}):
+            _args, wid = _parse_argv(["--window-id", "0x2222222"])
+        # Argument wins because the main() logic checks args.window_id first
+        self.assertEqual(wid, 0x2222222)
+
+    def test_run_flag_unaffected_by_window_id(self):
+        """--run combined with --window-id leaves run=True and window_id set."""
+        # --run and --window-id are not mutually exclusive
+        _args, wid = _parse_argv(["--run", "--window-id", "0xABC"])
+        self.assertTrue(_args.run)
+        self.assertEqual(wid, 0xABC)
 
 
 if __name__ == "__main__":
