@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  XScreenSaver configuration for Photo Screensaver.
+
+  Installation (handled automatically by install.sh):
+    sudo cp photo-screensaver.xml /usr/share/xscreensaver/config/
+    sudo cp photo-screensaver      /usr/lib/xscreensaver/   (or /usr/libexec/xscreensaver/)
+    sudo chmod +x /usr/lib/xscreensaver/photo-screensaver
+
+  After installing, restart XScreenSaver or run xscreensaver-settings to see
+  "Photo Screensaver" in the screensaver list.
+-->
+<screensaver name="photo-screensaver" _label="Photo Screensaver">
+  <command exec="photo-screensaver"/>
+  <_description>
+    Displays a slideshow of photos from your configured folder,
+    including all subfolders.
+
+    Configure the photo folder and display interval via:
+      photo-screensaver --config
+  </_description>
+</screensaver>
